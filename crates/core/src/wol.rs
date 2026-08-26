@@ -1,3 +1,4 @@
+use std::net::IpAddr;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -36,7 +37,7 @@ impl Default for WakePolicy {
 
 pub fn parse_mac(mac: &str) -> Result<[u8; 6]> {
     let parts: Vec<&str> = mac.split([':', '-']).collect();
-    if parts.len() != 6 {
+    if parts.len() != 6 || parts.iter().any(|p| p.len() != 2) {
         return Err(OrchestratorError::ConfigError(format!(
             "invalid MAC `{mac}`"
         )));
@@ -59,10 +60,14 @@ pub fn magic_packet(mac: &str) -> Result<[u8; 102]> {
 }
 
 pub async fn wake(mac: &str) -> Result<()> {
+    send_magic(mac, (std::net::Ipv4Addr::BROADCAST.into(), 9), true).await
+}
+
+async fn send_magic(mac: &str, target: (IpAddr, u16), broadcast: bool) -> Result<()> {
     let pkt = magic_packet(mac)?;
     let sock = UdpSocket::bind("0.0.0.0:0").await?;
-    sock.set_broadcast(true)?;
-    sock.send_to(&pkt, ("255.255.255.255", 9)).await?;
+    sock.set_broadcast(broadcast)?;
+    sock.send_to(&pkt, target).await?;
     Ok(())
 }
 
@@ -72,18 +77,17 @@ pub async fn connect_with_wake(
     policy: &WakePolicy,
     on_status: &mut dyn FnMut(MachineStatus),
 ) -> Result<()> {
-    match tmux::handshake(ssh, m).await {
-        Ok(()) => {
+    let mac = match (tmux::handshake(ssh, m).await, m.mac.as_deref()) {
+        (Ok(()), _) => {
             on_status(MachineStatus::Online);
             return Ok(());
         }
-        Err(OrchestratorError::HostUnreachable) if m.mac.is_some() => {}
-        Err(e) => {
+        (Err(OrchestratorError::HostUnreachable), Some(mac)) => mac,
+        (Err(e), _) => {
             on_status(MachineStatus::Unreachable);
             return Err(e);
         }
-    }
-    let mac = m.mac.as_deref().expect("checked above");
+    };
     on_status(MachineStatus::Waking);
     if let Err(e) = wake(mac).await {
         on_status(MachineStatus::Unreachable);
@@ -147,7 +151,13 @@ mod tests {
 
     #[test]
     fn parse_mac_rejects_garbage() {
-        for bad in ["", "AA:BB:CC", "ZZ:BB:CC:01:02:03", "AABBCC010203"] {
+        for bad in [
+            "",
+            "AA:BB:CC",
+            "ZZ:BB:CC:01:02:03",
+            "AABBCC010203",
+            "A:B:C:1:2:3",
+        ] {
             assert!(
                 matches!(parse_mac(bad), Err(OrchestratorError::ConfigError(_))),
                 "{bad}"
@@ -168,9 +178,22 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn wake_sends_102_bytes_to_udp() {
-        // Can't listen on broadcast reliably in CI; assert it does not error.
-        wake("AA:BB:CC:01:02:03").await.unwrap();
+    async fn send_magic_delivers_102_byte_packet() {
+        // Exercise the real send path without touching the LAN: bind a
+        // loopback socket to receive on, then send through `send_magic`
+        // (non-broadcast) to that socket's address.
+        let recv_sock = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let target_addr = recv_sock.local_addr().unwrap();
+
+        let mac = "AA:BB:CC:01:02:03";
+        send_magic(mac, (target_addr.ip(), target_addr.port()), false)
+            .await
+            .unwrap();
+
+        let mut buf = [0u8; 256];
+        let (n, _) = recv_sock.recv_from(&mut buf).await.unwrap();
+        assert_eq!(n, 102);
+        assert_eq!(&buf[..n], &magic_packet(mac).unwrap()[..]);
     }
 
     #[tokio::test]

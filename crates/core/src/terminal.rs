@@ -1,11 +1,14 @@
 use std::process::{Command, Stdio};
 use std::sync::OnceLock;
 
+use serde::Serialize;
+
 use crate::config::Machine;
 use crate::error::{OrchestratorError, Result};
 use crate::tmux::validate_session_name;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Terminal {
     WindowsTerminal,
     Cmd,
@@ -59,12 +62,25 @@ const CANDIDATES: &[(&str, Terminal)] = &[
 ];
 
 pub fn detect_terminal() -> Result<Terminal> {
+    // A negative result (`TerminalMissing`) is cached for the lifetime of the
+    // process, same as a positive one: `OnceLock::get_or_init` only ever runs
+    // the closure once, regardless of whether it returned `Ok` or `Err`. That
+    // is fine for this one-shot CLI, but a long-lived host (e.g. the M3 Tauri
+    // app) must not rely on this cache to notice a terminal installed after
+    // the first call — it will keep returning the original `Err` forever.
     static CACHE: OnceLock<Result<Terminal>> = OnceLock::new();
     CACHE
         .get_or_init(|| detect_terminal_in(CANDIDATES, &binary_in_path))
         .clone()
 }
 
+/// Detects a terminal and spawns it attached to `session` on `m`.
+///
+/// This function is synchronous and blocking: `detect_terminal` performs
+/// filesystem `stat` calls across every directory in `PATH`, and spawning the
+/// terminal process is itself a blocking syscall. Async callers must not call
+/// this directly on an async task — wrap it in `tokio::task::spawn_blocking`
+/// to avoid stalling the executor.
 pub fn spawn_attach(m: &Machine, session: &str) -> Result<()> {
     validate_session_name(session)?;
     let term = detect_terminal()?;

@@ -17,7 +17,6 @@ serde.workspace = true
 thiserror.workspace = true
 toml = "0.8"
 async-trait = "0.1"
-regex = "1"
 dns-lookup = "2"
 
 [dev-dependencies]

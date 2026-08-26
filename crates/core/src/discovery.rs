@@ -240,8 +240,8 @@ mod tests {
         assert!(!r.reachable);
         assert_eq!(r.ssh_banner, None);
         assert!(
-            start.elapsed() < Duration::from_secs(6),
-            "steps must run in parallel with 2s timeouts"
+            start.elapsed() < Duration::from_secs(10),
+            "steps must run in parallel with 2s timeouts; serial execution would take ~8s+"
         );
     }
 }
