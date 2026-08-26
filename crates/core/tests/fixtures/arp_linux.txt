@@ -1,0 +1,4 @@
+Address                  HWtype  HWaddress           Flags Mask            Iface
+192.168.1.1              ether   d4:5d:64:aa:bb:01   C                     eth0
+192.168.1.50             ether   aa:bb:cc:dd:ee:ff   C                     eth0
+192.168.1.77                     (incomplete)                              eth0
