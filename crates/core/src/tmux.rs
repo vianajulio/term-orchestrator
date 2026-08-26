@@ -90,6 +90,9 @@ pub async fn list_sessions(ssh: &dyn SshRunner, m: &Machine) -> Result<Vec<Sessi
     if out.code == 1 && out.stderr.contains("no server running") {
         return Ok(Vec::new());
     }
+    // Newer tmux versions report the no-socket case as "error connecting to
+    // /tmp/tmux-1000/default (No such file or directory)" instead of
+    // "no server running"; treat it the same way (empty session list).
     if out.code == 1 && out.stderr.contains("error connecting to") {
         return Ok(Vec::new());
     }
@@ -217,6 +220,27 @@ mod tests {
         assert_eq!(
             ssh.calls(),
             vec![r##"tmux ls -F "#{session_name}|#{session_windows}|#{session_attached}""##]
+        );
+    }
+
+    #[tokio::test]
+    async fn list_sessions_error_connecting_is_empty() {
+        let ssh = MockSsh::new();
+        ssh.push_ok(
+            1,
+            "",
+            "error connecting to /tmp/tmux-1000/default (No such file or directory)",
+        );
+        assert_eq!(list_sessions(&ssh, &m()).await.unwrap(), vec![]);
+    }
+
+    #[tokio::test]
+    async fn list_sessions_other_exit1_is_error() {
+        let ssh = MockSsh::new();
+        ssh.push_ok(1, "", "some other failure");
+        assert_eq!(
+            list_sessions(&ssh, &m()).await.unwrap_err(),
+            OrchestratorError::Io("some other failure".into())
         );
     }
 
