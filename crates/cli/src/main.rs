@@ -41,6 +41,10 @@ enum Command {
         machine: String,
         session: Option<String>,
     },
+    /// Probe an IP: ping, ARP (MAC), SSH banner, reverse DNS
+    Discover { ip: std::net::IpAddr },
+    /// Connect to a machine, sending Wake-on-LAN and retrying if it is asleep
+    Wake { machine: String },
 }
 
 #[derive(Subcommand)]
@@ -128,5 +132,7 @@ async fn main() -> anyhow::Result<()> {
         Command::Attach { machine, session } => {
             commands::attach(&path, &machine, session.as_deref())
         }
+        Command::Discover { ip } => commands::discover(ip).await,
+        Command::Wake { machine } => commands::wake(&path, &machine).await,
     }
 }

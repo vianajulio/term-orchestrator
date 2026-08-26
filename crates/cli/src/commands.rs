@@ -1,7 +1,10 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context};
-use term_orchestrator_core::{terminal, tmux, Config, Machine, MachineOs, SystemSsh};
+use term_orchestrator_core::{
+    discovery, terminal, tmux, wol, Config, Machine, MachineOs, MachineStatus, SystemSsh,
+    WakePolicy,
+};
 
 fn load(path: &Path) -> anyhow::Result<Config> {
     Config::load(path).with_context(|| format!("loading {}", path.display()))
@@ -120,5 +123,27 @@ pub fn attach(path: &Path, machine: &str, session: Option<&str>) -> anyhow::Resu
     let session = session.unwrap_or(&m.default_session);
     terminal::spawn_attach(m, session)?;
     println!("opened terminal for `{machine}:{session}`");
+    Ok(())
+}
+
+pub async fn discover(ip: std::net::IpAddr) -> anyhow::Result<()> {
+    let r = discovery::discover(ip).await;
+    println!("reachable:  {}", r.reachable);
+    println!("mac:        {}", r.mac.as_deref().unwrap_or("-"));
+    println!("os_hint:    {:?}", r.os_hint);
+    println!("hostname:   {}", r.hostname_hint.as_deref().unwrap_or("-"));
+    println!("ssh_banner: {}", r.ssh_banner.as_deref().unwrap_or("-"));
+    Ok(())
+}
+
+pub async fn wake(path: &Path, machine: &str) -> anyhow::Result<()> {
+    let cfg = load(path)?;
+    let m = find_machine(&cfg, machine)?;
+    let started = std::time::Instant::now();
+    let mut on_status = |s: MachineStatus| {
+        println!("[{:>5.1}s] {s:?}", started.elapsed().as_secs_f32());
+    };
+    wol::connect_with_wake(&SystemSsh, m, &WakePolicy::default(), &mut on_status).await?;
+    println!("`{machine}` is online");
     Ok(())
 }
