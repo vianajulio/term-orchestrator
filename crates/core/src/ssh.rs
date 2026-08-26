@@ -259,16 +259,26 @@ mod tests {
         assert_eq!(mock.calls(), vec!["one", "two"]);
     }
 
+    /// Restores the previous `PATH` when dropped, even if the test body panics.
+    struct PathGuard(Option<std::ffi::OsString>);
+
+    impl Drop for PathGuard {
+        fn drop(&mut self) {
+            match self.0.take() {
+                Some(p) => std::env::set_var("PATH", p),
+                None => std::env::remove_var("PATH"),
+            }
+        }
+    }
+
     #[tokio::test]
+    #[serial_test::serial(path_env)]
     async fn system_ssh_reports_client_missing_when_binary_absent() {
         // Point PATH at an empty dir so `ssh` cannot be found.
         let dir = tempfile::tempdir().unwrap();
-        let old = std::env::var_os("PATH");
+        let _guard = PathGuard(std::env::var_os("PATH"));
         std::env::set_var("PATH", dir.path());
         let r = SystemSsh.run(&m(), "true", Duration::from_secs(2)).await;
-        if let Some(p) = old {
-            std::env::set_var("PATH", p);
-        }
         assert_eq!(r.unwrap_err(), OrchestratorError::SshClientMissing);
     }
 }
