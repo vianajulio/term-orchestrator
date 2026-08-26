@@ -18,12 +18,17 @@ sudo systemctl enable --now ssh
 sudo apt install -y openssh-server tmux
 sudo systemctl enable --now ssh      # requer systemd habilitado no WSL (/etc/wsl.conf: [boot] systemd=true)
 ```
-Encaminhar a porta 22 do host Windows para o WSL (PowerShell como admin, IP do WSL via `wsl hostname -I`):
+Encaminhar a porta 22 do host Windows para o WSL (PowerShell como admin). IP do WSL: `wsl -- ip -4 addr show eth0` (campo `inet`; `hostname -I` não existe em todas as distros):
 ```powershell
 netsh interface portproxy add v4tov4 listenport=22 listenaddress=0.0.0.0 connectport=22 connectaddress=<IP_WSL>
 netsh advfirewall firewall add rule name="SSH WSL" dir=in action=allow protocol=TCP localport=22
 ```
-O IP do WSL muda a cada boot; use um script de startup ou WSL em modo `networkingMode=mirrored` (`.wslconfig`) para evitar o portproxy.
+O IP do WSL muda a cada boot e quebra o portproxy. Alternativa recomendada (Windows 11 22H2+): `%USERPROFILE%\.wslconfig` com
+```
+[wsl2]
+networkingMode=mirrored
+```
+seguido de `wsl --shutdown`. O WSL passa a usar o IP do Windows; basta a regra de firewall, sem portproxy.
 
 ### 2. Chave SSH (sem senha)
 
