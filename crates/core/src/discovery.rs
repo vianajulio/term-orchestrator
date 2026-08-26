@@ -92,6 +92,8 @@ async fn ping(ip: IpAddr) -> bool {
     let mut cmd = tokio::process::Command::new("ping");
     cmd.args(args)
         .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
         .kill_on_drop(true);
     matches!(tokio::time::timeout(STEP_TIMEOUT, cmd.status()).await, Ok(Ok(s)) if s.success())
 }
